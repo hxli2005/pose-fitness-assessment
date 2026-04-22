@@ -13,9 +13,9 @@ from pose_estimators import create_estimator
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate Pose Estimators on COCO Val2017")
-    parser.add_argument('--config', type=str, default='../configs/models.yaml', help='Path to models.yaml')
-    parser.add_argument('--data-dir', type=str, default='../data/coco', help='COCO data directory')
-    parser.add_argument('--output-dir', type=str, default='../outputs/e1', help='Where to save results')
+    parser.add_argument('--config', type=str, default='configs/models.yaml', help='Path to models.yaml')
+    parser.add_argument('--data-dir', type=str, default='data/coco', help='COCO data directory')
+    parser.add_argument('--output-dir', type=str, default='outputs/e1', help='Where to save results')
     parser.add_argument('--num-samples', type=int, default=None, help='Limit evaluation to N samples (default: All)')
     parser.add_argument('--device', type=str, default='cpu', help='Device to use: cpu, cuda:0, mps')
     return parser.parse_args()
