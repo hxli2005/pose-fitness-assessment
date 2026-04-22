@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Model weights & checkpoints
+*.pth
+*.pt
+*.onnx
+*.engine
+*.bin
+*.safetensors
+checkpoints/
+weights/
+
+# Datasets (too large to track)
+data/coco/
+data/fit3d/
+data/countix/
+data/repcount/
+data/custom/
+*.zip
+*.tar
+*.tar.gz
+
+# Experiment outputs
+outputs/
+logs/
+runs/
+wandb/
+tb_logs/
+*.log
+
+# Videos / large media
+*.mp4
+*.avi
+*.mov
+*.mkv
+!docs/demo_small.mp4
+
+# OS junk
+Thumbs.db
