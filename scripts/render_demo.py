@@ -36,10 +36,10 @@ def draw_skeleton(img, kps, conf_threshold=0.3):
 def parse_args():
     parser = argparse.ArgumentParser(description="Render Fitness Assessment Demo Video")
     parser.add_argument('--input', type=str, required=True, help='Path to input video')
-    parser.add_argument('--output', type=str, default='../outputs/demos/demo.mp4', help='Path to output video')
+    parser.add_argument('--output', type=str, default='outputs/demos/demo.mp4', help='Path to output video')
     parser.add_argument('--model', type=str, default='rtmpose_s', help='Model key from models.yaml')
     parser.add_argument('--action', type=str, default='squat', choices=['squat', 'pushup', 'crunch'])
-    parser.add_argument('--config', type=str, default='../configs/models.yaml', help='Path to models.yaml')
+    parser.add_argument('--config', type=str, default='configs/models.yaml', help='Path to models.yaml')
     parser.add_argument('--device', type=str, default='cpu')
     return parser.parse_args()
 
