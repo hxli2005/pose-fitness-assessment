@@ -159,3 +159,118 @@
 3. 输入一段 10 秒深蹲视频，pipeline 能输出：骨架叠加视频 + 正确的 rep 计数（人工对比 < ±1 误差）+ 评分结果
 4. E2 的 MLP 分类器在 3 类动作上 Acc > 85%（是否能显著区分姿态模型质量）
 5. Pareto 图清晰显示 ViTPose 高精度低速度、YOLO11n 低精度高速度、RTMPose 居中的 trade-off
+
+---
+
+## 任务拆解（10 个子任务，按依赖顺序执行）
+
+将 4 周方案按功能模块拆成 10 个可独立完成的子任务。每个任务附带：输入、产出文件、完成标志。依赖顺序如箭头所示。
+
+```
+T1 环境 ──► T2 COCO 数据 ──► T3 三模型推理封装 ──► T4 E1 评估 + Pareto
+                                   │
+                                   ▼
+                              T5 Fit3D/Countix 数据
+                                   │
+                                   ├──► T6 关键点时序 + 角度 + 计数/评分
+                                   │        │
+                                   │        ├──► T7 可视化（骨架+角度曲线+评分卡片）
+                                   │        │
+                                   │        └──► T9 E3 平滑消融
+                                   │
+                                   └──► T8 E2 下游分类
+                                   
+                              T10 E4 分辨率/遮挡鲁棒性 ──► T11 报告 + demo 视频
+```
+
+### T1 — 环境与依赖（0.5 天）
+- **输入**：空的 `~/code/pose-fitness-assessment/` 仓库
+- **做什么**：新建 `.venv`，安装 PyTorch (CUDA 11.8)、mmpose 生态（via `openmim`）、ultralytics、pycocotools、one-euro-filter、seaborn 等；写一个 `scripts/setup_env.sh` 把所有命令固化
+- **产出文件**：`scripts/setup_env.sh`、`requirements.txt`（pip freeze 快照）
+- **完成标志**：`python -c "import mmpose, ultralytics, pycocotools"` 无报错；`nvidia-smi` 能看到显卡
+
+### T2 — COCO val2017 数据准备（0.5 天）
+- **输入**：T1 环境
+- **做什么**：下载 `val2017.zip` + `annotations_trainval2017.zip`，解压到 `data/coco/`；抽取 `person_keypoints_val2017.json` 中的 person 子集（约 2693 图）；写一个 sanity-check notebook 可视化 3 张图+标注
+- **产出文件**：`scripts/download_coco.sh`、`data/coco/{val2017/, annotations/}`、`notebooks/01_coco_sanity.ipynb`
+- **完成标志**：notebook 能画出关键点叠加图；标注 json 能被 `pycocotools.COCO` 正确加载
+
+### T3 — 三模型推理封装（1.5 天）
+- **输入**：T1 环境
+- **做什么**：实现一个统一的 `PoseEstimator` 接口类，内部分别调用 RTMPose-M（mmpose inferencer API）、YOLO11n-Pose（ultralytics API）、ViTPose-Base（mmpose inferencer）。接口签名：`estimator.infer(image) -> List[Keypoints17]`，输出格式统一到 COCO 17 点 `[x, y, conf]`
+- **产出文件**：`scripts/pose_estimators.py`（统一接口 + 三子类）、`configs/models.yaml`（记录模型→checkpoint 映射）、`notebooks/02_model_smoke_test.ipynb`（三模型在同一张图上跑出骨架叠加）
+- **完成标志**：同一张 COCO 图片，三模型均能输出 17 个关键点且坐标合理；骨架叠加图可视化通过肉眼检查
+
+### T4 — E1 实验：COCO val OKS-mAP + Pareto 图（1 天）
+- **输入**：T2 数据、T3 推理接口
+- **做什么**：写 `scripts/eval_coco.py`，遍历 COCO val，调 `PoseEstimator` + pycocotools `COCOeval`，对三模型分别产出 OKS-mAP/AR；同时用 `time.perf_counter` 在 100 张固定图上测平均推理速度、用 `torch.numel` 统计参数量；最后在 notebook 里画 Pareto 气泡图
+- **产出文件**：`scripts/eval_coco.py`、`outputs/e1/results.csv`（模型×指标表）、`notebooks/03_e1_pareto.ipynb`、`outputs/e1/pareto.png`
+- **完成标志**：三模型 OKS-mAP 与论文参考值 ±1 以内；Pareto 图清晰显示三点 trade-off（见总方案验证点 1/2/5）
+
+### T5 — Fit3D / Countix 数据准备（1.5 天）
+- **输入**：T1 环境
+- **做什么**：
+  1. 下载 Fit3D 授权版（需注册），取 squat/crunch/push-up 三个动作的子集；写脚本把 3D 关节投影到 2D（利用 Fit3D 提供的相机内参）得到 2D GT 关键点
+  2. 下载 Countix / RepCount annotations + YouTube 视频（用 `yt-dlp`），抽出 exercise 类（jumping jacks / squats / sit-ups）
+  3. 统一用 ffmpeg 抽帧到 30fps，存为 `data/fit3d/{action}/{clip_id}/frame_%05d.jpg` 结构
+- **产出文件**：`scripts/prepare_fit3d.py`（下载+投影）、`scripts/prepare_countix.py`（下载+抽帧+对齐 rep count 标注）、`data/fit3d/`、`data/countix/`、一份数据清单 `docs/data_inventory.md`
+- **完成标志**：Fit3D 投影出的 2D 关键点叠在原图上肉眼看着对；Countix 每段视频的 rep 起止时间戳能映射到正确帧号
+
+### T6 — 时序后处理 + 关节角度 + 计数/评分（1.5 天）
+- **输入**：T3 推理接口、T5 数据
+- **做什么**：
+  1. `scripts/temporal_filter.py`：封装低置信过滤、滑动平均、1€ filter 三种平滑
+  2. `scripts/joint_angles.py`：实现膝/髋/肘/肩角度的向量法计算函数
+  3. `scripts/rep_counter.py`：基于关节角度峰值 + hysteresis 的计数器（进入 <100°，复位 >140°）
+  4. `scripts/fitness_scorer.py`：按总方案第 6 节的规则表，对每次 rep 输出 `{standard: bool, errors: [半程/膝内扣/...]}`
+- **产出文件**：上述 4 个脚本、`notebooks/04_counter_demo.ipynb`（对一段自录深蹲视频跑通计数+评分）
+- **完成标志**：对一段 10 秒、10 次深蹲的视频，计数结果在 ±1 误差内；评分模块能正确标出人为做错的 2-3 次
+
+### T7 — 可视化：骨架叠加 + 角度曲线 + 评分卡片（1 天）
+- **输入**：T6 pipeline
+- **做什么**：写 `scripts/render_demo.py`，给定一段视频，输出：（a）叠加骨架 + 关节角度数值的 MP4；（b）用 matplotlib 画膝角时序曲线 + rep 峰值标记的 GIF；（c）右上角贴"第 X 次 / 标准|膝内扣"评分卡片
+- **产出文件**：`scripts/render_demo.py`、`outputs/demos/squat_rtmpose.mp4`（一段示例）
+- **完成标志**：一个外行人看视频能立刻明白"正在数第几次，这次做对没"
+
+### T8 — E2 实验：下游动作分类（1 天）
+- **输入**：T3 推理接口、T5 Fit3D 数据
+- **做什么**：对 Fit3D 的三类（squat/crunch/push-up）片段按 30 帧滑窗切样本，用三个姿态模型分别抽取 17×2×30 的关键点特征；训练一个 2 层 MLP（128→3）做分类；记录三组 Accuracy + 混淆矩阵
+- **产出文件**：`scripts/extract_keypoints_fit3d.py`、`scripts/train_action_mlp.py`、`outputs/e2/results.csv`、`outputs/e2/confusion_matrix_*.png`（三张，每模型一张）
+- **完成标志**：至少一个姿态模型的 MLP Acc > 85%；三模型 Acc 差距能被报告里解释为"上游精度对下游的影响"
+
+### T9 — E3 实验：平滑消融（0.5 天）
+- **输入**：T6 计数模块、T5 Countix 数据
+- **做什么**：在 Countix exercise 子集上，用 RTMPose-M 产生关键点序列，扫描 `{无平滑, MA-3, MA-5, MA-7, 1€-β0.5, 1€-β1.0, 1€-β2.0}` 7 组设置，记录计数 MAE
+- **产出文件**：`scripts/eval_e3_smoothing.py`、`outputs/e3/results.csv`、`notebooks/05_e3_plot.ipynb`（柱状图）
+- **完成标志**：能看出平滑方法间明显差异；最优配置的 MAE 比无平滑至少降低 30%
+
+### T10 — E4 实验：分辨率 + 遮挡鲁棒性（1 天）
+- **输入**：T3 推理接口、T5 Fit3D 数据
+- **做什么**：
+  1. 分辨率：把 Fit3D 子集图像 resize 到 256×192 / 320×240 / 640×480，三模型 × 三分辨率统计 PCK@0.05
+  2. 遮挡：对每帧随机画 5% / 10% / 20% 面积的黑矩形，统计 PCK 和计数 MAE
+- **产出文件**：`scripts/eval_e4_robustness.py`、`outputs/e4/results.csv`、`notebooks/06_e4_curves.ipynb`（两张折线图）
+- **完成标志**：ViTPose 在高遮挡下应显著优于 YOLO11n；有清晰的鲁棒性曲线
+
+### T11 — 报告 + demo 视频 + README 打磨（1.5 天）
+- **输入**：T4/T7/T8/T9/T10 的所有产出
+- **做什么**：
+  1. 写课程报告 LaTeX/Word（Intro / Related Work / Method / Experiments / Discussion / Conclusion）
+  2. 剪一段 2-3 分钟 demo 视频（三类动作 × 带评分卡片）
+  3. 打磨 README，让第三方能一键复现 E1-E4
+- **产出文件**：`docs/report.pdf`、`docs/demo.mp4`、最终版 `README.md`
+- **完成标志**：报告能讲清三个核心贡献点（总方案第 11 行）；demo 视频对外人无需解释即可看懂；`scripts/setup_env.sh && scripts/download_coco.sh && scripts/eval_coco.py` 能跑通
+
+---
+
+### 任务总工作量（粗估）
+
+| 阶段 | 任务 | 工作日 |
+|---|---|---|
+| W1 | T1 + T2 + T3 + T4 | 3.5 |
+| W2 | T5 + T6 | 3 |
+| W3 | T7 + T8 + T9 | 2.5 |
+| W4 | T10 + T11 | 2.5 |
+| **合计** |  | **11.5 工作日** |
+
+适合每晚 2-3 小时、持续 4 周完成。遇到卡点随时调整 T5（Fit3D 授权/下载）或 T8（自建数据替代）。
