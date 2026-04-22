@@ -1,3 +1,5 @@
+import cv2
+
 import os
 import time
 import yaml
@@ -66,7 +68,7 @@ def evaluate_model(model_name: str, model_info: dict, args, coco_gt: COCO, img_i
         img_info = coco_gt.loadImgs(img_id)[0]
         img_path = os.path.join(args.data_dir, 'val2017', img_info['file_name'])
 
-        import cv2 # imported here just for safety if not in top
+        
         img = cv2.imread(img_path)
         if img is None:
             continue
