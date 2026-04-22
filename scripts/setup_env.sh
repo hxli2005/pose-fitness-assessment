@@ -7,7 +7,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 echo ">>> Updating pip..."
-pip install --upgrade pip wheel && pip install "setuptools<60.0.0"
+pip install --upgrade pip wheel "setuptools>=60.0.0,<82.0.0"
 
 echo ">>> Installing PyTorch..."
 # macOS 环境默认安装 CPU / MPS 版本的 PyTorch
@@ -16,7 +16,7 @@ pip install torch torchvision
 echo ">>> Installing OpenMMLab ecosystem (mmpose, mmdet, mmcv)..."
 pip install -U openmim
 mim install mmengine
-pip install "mmcv>=2.0.0" --no-build-isolation
+mim install "mmcv>=2.0.0"
 mim install "mmdet>=3.0.0"
 mim install "mmpose>=1.3.0"
 
